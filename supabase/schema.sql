@@ -1,0 +1,22 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE IF NOT EXISTS public.tracked_keywords (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,keyword text NOT NULL CHECK (length(trim(keyword)) BETWEEN 1 AND 80),created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(user_id,keyword));
+CREATE TABLE IF NOT EXISTS public.bookmarks (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,url text NOT NULL CHECK (length(url) BETWEEN 5 AND 2048),source text NOT NULL CHECK(source IN ('뉴스','블로그','유튜브')),title text NOT NULL,description text NOT NULL DEFAULT '',thumbnail text,published_at timestamptz,metadata jsonb NOT NULL DEFAULT '{}'::jsonb,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(user_id,url));
+CREATE TABLE IF NOT EXISTS public.collection_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,keyword text NOT NULL,source text NOT NULL,result_count integer NOT NULL DEFAULT 0 CHECK(result_count>=0),status text NOT NULL DEFAULT 'success' CHECK(status IN ('success','partial','error')),details text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS bookmarks_user_created_idx ON public.bookmarks(user_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS keywords_user_created_idx ON public.tracked_keywords(user_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS logs_user_created_idx ON public.collection_logs(user_id,created_at DESC);
+ALTER TABLE public.tracked_keywords ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bookmarks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.collection_logs ENABLE ROW LEVEL SECURITY;
+DO $$ DECLARE t text;BEGIN FOREACH t IN ARRAY ARRAY['tracked_keywords','bookmarks','collection_logs'] LOOP
+EXECUTE format('DROP POLICY IF EXISTS owner_select ON public.%I',t);
+EXECUTE format('DROP POLICY IF EXISTS owner_insert ON public.%I',t);
+EXECUTE format('DROP POLICY IF EXISTS owner_update ON public.%I',t);
+EXECUTE format('DROP POLICY IF EXISTS owner_delete ON public.%I',t);
+EXECUTE format('CREATE POLICY owner_select ON public.%I FOR SELECT TO authenticated USING ((SELECT auth.uid())=user_id)',t);
+EXECUTE format('CREATE POLICY owner_insert ON public.%I FOR INSERT TO authenticated WITH CHECK ((SELECT auth.uid())=user_id)',t);
+EXECUTE format('CREATE POLICY owner_update ON public.%I FOR UPDATE TO authenticated USING ((SELECT auth.uid())=user_id) WITH CHECK ((SELECT auth.uid())=user_id)',t);
+EXECUTE format('CREATE POLICY owner_delete ON public.%I FOR DELETE TO authenticated USING ((SELECT auth.uid())=user_id)',t);
+END LOOP;END $$;
+REVOKE ALL ON public.tracked_keywords,public.bookmarks,public.collection_logs FROM anon;
+GRANT SELECT,INSERT,UPDATE,DELETE ON public.tracked_keywords,public.bookmarks,public.collection_logs TO authenticated;
